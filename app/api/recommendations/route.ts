@@ -80,7 +80,10 @@ export async function POST(request: NextRequest) {
     .map((m) => m.recipe_id);
 
   const bookmarkedCuisines = (bookmarks ?? [])
-    .map((b: { recipe_id: string; recipes: { id: string; name: string; cuisine: string } | null }) => b.recipes?.cuisine)
+    .map((b) => {
+      const r = b.recipes;
+      return Array.isArray(r) ? r[0]?.cuisine : (r as { cuisine?: string } | null)?.cuisine;
+    })
     .filter(Boolean);
 
   const cuisineCounts: Record<string, number> = {};
