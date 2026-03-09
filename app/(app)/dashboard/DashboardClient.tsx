@@ -71,7 +71,7 @@ export default function DashboardClient({ username, upcomingMeals, bookmarkedIds
   async function handleToggleBookmark(recipeId: string) {
     const wasBookmarked = bookmarks.has(recipeId);
     setBookmarks((prev) => {
-      const next = new Set(prev);
+      const next = new Set(Array.from(prev));
       wasBookmarked ? next.delete(recipeId) : next.add(recipeId);
       return next;
     });
@@ -82,7 +82,7 @@ export default function DashboardClient({ username, upcomingMeals, bookmarkedIds
     });
     if (!res.ok) {
       setBookmarks((prev) => {
-        const next = new Set(prev);
+        const next = new Set(Array.from(prev));
         wasBookmarked ? next.add(recipeId) : next.delete(recipeId);
         return next;
       });

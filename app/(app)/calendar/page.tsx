@@ -109,7 +109,7 @@ export default function CalendarPage() {
   async function handleToggleBookmark(recipeId: string) {
     const wasBookmarked = bookmarks.has(recipeId);
     setBookmarks((prev) => {
-      const next = new Set(prev);
+      const next = new Set(Array.from(prev));
       wasBookmarked ? next.delete(recipeId) : next.add(recipeId);
       return next;
     });
