@@ -31,6 +31,7 @@ export default function RegisterPage() {
     if (name === 'password') {
       if (value.length < 8) return 'Minimum 8 characters.';
       if (!/[A-Z]/.test(value)) return 'Must include at least one uppercase letter.';
+      if (!/[a-z]/.test(value)) return 'Must include at least one lowercase letter.';
       if (!/[0-9]/.test(value)) return 'Must include at least one number.';
     }
     return '';
@@ -174,8 +175,23 @@ export default function RegisterPage() {
                 ? 'border-red-400 focus:border-red-400 focus:ring-2 focus:ring-red-100'
                 : 'border-gray-200 focus:border-brand-500 focus:ring-2 focus:ring-brand-100'
             }`}
-            placeholder="Min 8 chars, 1 uppercase, 1 number"
+            placeholder="••••••••"
           />
+          {password && (
+            <ul className="mt-2 space-y-1">
+              {[
+                { label: 'At least 8 characters', met: password.length >= 8 },
+                { label: 'At least one uppercase letter', met: /[A-Z]/.test(password) },
+                { label: 'At least one lowercase letter', met: /[a-z]/.test(password) },
+                { label: 'At least one number', met: /[0-9]/.test(password) },
+              ].map(({ label, met }) => (
+                <li key={label} className={`flex items-center gap-1.5 text-xs ${met ? 'text-green-600' : 'text-gray-400'}`}>
+                  <span>{met ? '✓' : '○'}</span>
+                  {label}
+                </li>
+              ))}
+            </ul>
+          )}
           {fieldErrors.password && (
             <p className="mt-1 text-xs text-red-600">{fieldErrors.password}</p>
           )}

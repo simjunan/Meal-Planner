@@ -175,10 +175,23 @@ GRANT EXECUTE ON FUNCTION public.get_email_by_user_id(UUID) TO authenticated;
 GRANT EXECUTE ON FUNCTION public.get_email_by_user_id(UUID) TO anon;
 
 -- ---------------------------------------------------------------
--- 8. Seed sample recipes (optional — remove in production)
+-- 8. Seed sample recipes (run once to populate the recipes table)
 -- ---------------------------------------------------------------
--- INSERT INTO public.recipes (name, source_url, cuisine, avg_rating, rating_count, cook_time_mins, servings, ingredients_summary, dietary_tags, meal_type)
--- VALUES
---   ('Kung Pao Chicken', 'https://example.com/kung-pao-chicken', 'Sichuan', 4.8, 12500, 30, 4, ARRAY['chicken breast', 'peanuts', 'dried chillies', 'sichuan pepper', 'soy sauce', 'vinegar', 'sugar'], ARRAY[]::TEXT[], ARRAY['lunch', 'dinner']),
---   ('Steamed Fish with Ginger', 'https://example.com/steamed-fish', 'Cantonese', 4.7, 8300, 25, 2, ARRAY['sea bass', 'ginger', 'spring onion', 'light soy sauce', 'sesame oil'], ARRAY[]::TEXT[], ARRAY['lunch', 'dinner']),
---   ('Mapo Tofu', 'https://example.com/mapo-tofu', 'Sichuan', 4.9, 15000, 20, 3, ARRAY['soft tofu', 'minced pork', 'doubanjiang', 'sichuan pepper', 'garlic', 'ginger'], ARRAY[]::TEXT[], ARRAY['lunch', 'dinner']);
+INSERT INTO public.recipes (name, source_url, cuisine, avg_rating, rating_count, cook_time_mins, servings, ingredients_summary, dietary_tags, meal_type)
+VALUES
+  ('Kung Pao Chicken', 'https://example.com/kung-pao-chicken', 'Sichuan', 4.8, 12500, 30, 4, ARRAY['chicken breast', 'peanuts', 'dried chillies', 'sichuan pepper', 'soy sauce', 'vinegar', 'sugar'], ARRAY[]::TEXT[], ARRAY['lunch', 'dinner']),
+  ('Steamed Fish with Ginger', 'https://example.com/steamed-fish', 'Cantonese', 4.7, 8300, 25, 2, ARRAY['sea bass', 'ginger', 'spring onion', 'light soy sauce', 'sesame oil'], ARRAY[]::TEXT[], ARRAY['lunch', 'dinner']),
+  ('Mapo Tofu', 'https://example.com/mapo-tofu', 'Sichuan', 4.9, 15000, 20, 3, ARRAY['soft tofu', 'minced pork', 'doubanjiang', 'sichuan pepper', 'garlic', 'ginger'], ARRAY[]::TEXT[], ARRAY['lunch', 'dinner']),
+  ('Char Siu Pork', 'https://example.com/char-siu', 'Cantonese', 4.8, 9200, 50, 4, ARRAY['pork shoulder', 'hoisin sauce', 'honey', 'soy sauce', 'five spice', 'garlic'], ARRAY[]::TEXT[], ARRAY['lunch', 'dinner']),
+  ('Dan Dan Noodles', 'https://example.com/dan-dan-noodles', 'Sichuan', 4.7, 7800, 25, 2, ARRAY['noodles', 'minced pork', 'sesame paste', 'sichuan pepper', 'chilli oil', 'spring onion'], ARRAY[]::TEXT[], ARRAY['lunch', 'dinner']),
+  ('Wonton Soup', 'https://example.com/wonton-soup', 'Cantonese', 4.6, 6500, 35, 4, ARRAY['wonton wrappers', 'minced pork', 'prawns', 'ginger', 'sesame oil', 'chicken broth'], ARRAY[]::TEXT[], ARRAY['breakfast', 'lunch']),
+  ('Bibimbap', 'https://example.com/bibimbap', 'Korean', 4.8, 11200, 40, 2, ARRAY['rice', 'beef', 'spinach', 'carrot', 'zucchini', 'egg', 'gochujang', 'sesame oil'], ARRAY[]::TEXT[], ARRAY['lunch', 'dinner']),
+  ('Pad Thai', 'https://example.com/pad-thai', 'Thai', 4.7, 14300, 20, 2, ARRAY['rice noodles', 'prawns', 'tofu', 'bean sprouts', 'egg', 'tamarind paste', 'fish sauce', 'peanuts'], ARRAY[]::TEXT[], ARRAY['lunch', 'dinner']),
+  ('Japanese Ramen', 'https://example.com/ramen', 'Japanese', 4.9, 18600, 60, 2, ARRAY['ramen noodles', 'chashu pork', 'soft-boiled egg', 'nori', 'bamboo shoots', 'tonkotsu broth'], ARRAY[]::TEXT[], ARRAY['lunch', 'dinner']),
+  ('Green Curry', 'https://example.com/green-curry', 'Thai', 4.7, 9800, 30, 4, ARRAY['chicken', 'coconut milk', 'green curry paste', 'Thai basil', 'eggplant', 'fish sauce', 'lime leaves'], ARRAY[]::TEXT[], ARRAY['lunch', 'dinner']),
+  ('Vegetable Fried Rice', 'https://example.com/veg-fried-rice', 'Chinese', 4.5, 7200, 15, 2, ARRAY['jasmine rice', 'egg', 'carrot', 'peas', 'soy sauce', 'garlic', 'spring onion'], ARRAY['Vegetarian'], ARRAY['lunch', 'dinner']),
+  ('Tofu Stir Fry', 'https://example.com/tofu-stir-fry', 'Chinese', 4.4, 5800, 20, 2, ARRAY['firm tofu', 'broccoli', 'bell pepper', 'soy sauce', 'oyster sauce', 'garlic', 'ginger'], ARRAY['Vegetarian', 'Vegan'], ARRAY['lunch', 'dinner']),
+  ('Beef Pho', 'https://example.com/beef-pho', 'Vietnamese', 4.8, 13400, 90, 4, ARRAY['rice noodles', 'beef brisket', 'star anise', 'cinnamon', 'ginger', 'bean sprouts', 'basil', 'lime'], ARRAY['Gluten-Free'], ARRAY['breakfast', 'lunch', 'dinner']),
+  ('Korean Fried Chicken', 'https://example.com/korean-fried-chicken', 'Korean', 4.9, 16700, 45, 4, ARRAY['chicken wings', 'potato starch', 'gochujang', 'garlic', 'soy sauce', 'honey', 'sesame seeds'], ARRAY[]::TEXT[], ARRAY['lunch', 'dinner']),
+  ('Tom Yum Soup', 'https://example.com/tom-yum', 'Thai', 4.6, 8100, 25, 2, ARRAY['prawns', 'lemongrass', 'galangal', 'lime leaves', 'mushrooms', 'fish sauce', 'lime juice', 'chilli'], ARRAY['Gluten-Free'], ARRAY['lunch', 'dinner'])
+ON CONFLICT (source_url) DO NOTHING;
