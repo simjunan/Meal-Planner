@@ -183,7 +183,7 @@ export default function DashboardClient({ username, upcomingMeals, bookmarkedIds
                             <div className="absolute inset-0 flex items-center justify-center text-2xl">🍽️</div>
                           )}
                           <button
-                            onClick={(e) => { e.stopPropagation(); setDismissed((p) => new Set([...p, `${rec.recipe_id}-${rec.day_offset}-${rec.meal_slot}`])); }}
+                            onClick={(e) => { e.stopPropagation(); setDismissed((p) => new Set([...Array.from(p), `${rec.recipe_id}-${rec.day_offset}-${rec.meal_slot}`])); }}
                             className="absolute top-1.5 right-1.5 w-6 h-6 rounded-full bg-black/50 text-white flex items-center justify-center hover:bg-black/70 transition"
                           >
                             <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor">
