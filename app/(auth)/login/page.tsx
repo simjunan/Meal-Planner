@@ -2,11 +2,13 @@
 
 import { useState } from 'react';
 import Link from 'next/link';
-import { useRouter } from 'next/navigation';
+import { useRouter, useSearchParams } from 'next/navigation';
 import { createClient } from '@/lib/supabase/client';
 
 export default function LoginPage() {
   const router = useRouter();
+  const searchParams = useSearchParams();
+  const checkEmail = searchParams.get('message') === 'check-email';
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
   const [rememberMe, setRememberMe] = useState(false);
@@ -70,6 +72,12 @@ export default function LoginPage() {
         <h1 className="text-2xl font-bold text-gray-900">MealMate</h1>
         <p className="text-sm text-gray-500 mt-1">Sign in to your household account</p>
       </div>
+
+      {checkEmail && (
+        <div className="bg-green-50 border border-green-200 rounded-xl px-4 py-3 text-sm text-green-700 mb-6">
+          Account created! Check your email to confirm your address, then sign in.
+        </div>
+      )}
 
       <form onSubmit={handleSubmit} className="space-y-5">
         <div>

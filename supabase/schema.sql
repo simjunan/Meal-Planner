@@ -138,7 +138,26 @@ CREATE POLICY "Users can manage own recommendation cache"
   WITH CHECK (auth.uid() = user_id);
 
 -- ---------------------------------------------------------------
--- 6. Helper function: get email by user id (used for username login)
+-- 6. Trigger: auto-create profile row when a new auth user signs up
+-- Runs as SECURITY DEFINER so it bypasses RLS
+-- ---------------------------------------------------------------
+CREATE OR REPLACE FUNCTION public.handle_new_user()
+RETURNS trigger LANGUAGE plpgsql SECURITY DEFINER AS $$
+BEGIN
+  INSERT INTO public.profiles (id, username)
+  VALUES (NEW.id, NEW.raw_user_meta_data->>'username')
+  ON CONFLICT (id) DO NOTHING;
+  RETURN NEW;
+END;
+$$;
+
+DROP TRIGGER IF EXISTS on_auth_user_created ON auth.users;
+CREATE TRIGGER on_auth_user_created
+  AFTER INSERT ON auth.users
+  FOR EACH ROW EXECUTE FUNCTION public.handle_new_user();
+
+-- ---------------------------------------------------------------
+-- 7. Helper function: get email by user id (used for username login)
 -- This runs as SECURITY DEFINER so it can read auth.users
 -- ---------------------------------------------------------------
 CREATE OR REPLACE FUNCTION public.get_email_by_user_id(uid UUID)
@@ -156,7 +175,7 @@ GRANT EXECUTE ON FUNCTION public.get_email_by_user_id(UUID) TO authenticated;
 GRANT EXECUTE ON FUNCTION public.get_email_by_user_id(UUID) TO anon;
 
 -- ---------------------------------------------------------------
--- 7. Seed sample recipes (optional — remove in production)
+-- 8. Seed sample recipes (optional — remove in production)
 -- ---------------------------------------------------------------
 -- INSERT INTO public.recipes (name, source_url, cuisine, avg_rating, rating_count, cook_time_mins, servings, ingredients_summary, dietary_tags, meal_type)
 -- VALUES

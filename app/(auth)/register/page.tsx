@@ -87,21 +87,15 @@ export default function RegisterPage() {
       return;
     }
 
-    if (authData.user) {
-      const { error: profileError } = await supabase.from('profiles').insert({
-        id: authData.user.id,
-        username,
-      });
-
-      if (profileError) {
-        setServerError('Failed to create profile. Please try again.');
-        setLoading(false);
-        return;
-      }
+    // Profile is created automatically by a database trigger (handle_new_user).
+    // If email confirmation is enabled, authData.session is null — redirect to
+    // a confirmation notice instead of the dashboard.
+    if (authData.session) {
+      router.push('/dashboard');
+      router.refresh();
+    } else {
+      router.push('/login?message=check-email');
     }
-
-    router.push('/dashboard');
-    router.refresh();
   }
 
   return (
