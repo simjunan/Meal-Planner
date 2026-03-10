@@ -175,7 +175,13 @@ GRANT EXECUTE ON FUNCTION public.get_email_by_user_id(UUID) TO authenticated;
 GRANT EXECUTE ON FUNCTION public.get_email_by_user_id(UUID) TO anon;
 
 -- ---------------------------------------------------------------
--- 8. Seed sample recipes (run once to populate the recipes table)
+-- 8. Seed recipes (run once to populate the recipes table)
+--
+-- STEP 1 — Run this file in the Supabase SQL Editor (inserts ~48 starter recipes)
+-- STEP 2 — Run supabase/seeds/recipes-250.sql to add 202 more (total ~250)
+-- STEP 3 — After deployment, populate images by calling:
+--           GET /api/admin/seed-images?secret=<SUPABASE_SERVICE_ROLE_KEY>
+--          (call multiple times with &offset=N to page through all recipes)
 -- ---------------------------------------------------------------
 INSERT INTO public.recipes (name, source_url, cuisine, avg_rating, rating_count, cook_time_mins, servings, ingredients_summary, dietary_tags, meal_type)
 VALUES

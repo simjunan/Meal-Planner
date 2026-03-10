@@ -5,6 +5,17 @@ import { Recipe } from '@/types';
 import StarRating from '@/components/ui/StarRating';
 import { formatCookTime } from '@/lib/utils';
 
+const CUISINE_EMOJI: Record<string, string> = {
+  Cantonese: '🍜', Chinese: '🥟', Sichuan: '🌶️', Shanghainese: '🥢',
+  Taiwanese: '🍱', Japanese: '🍣', Korean: '🍲', Thai: '🍛',
+  Vietnamese: '🍜', Western: '🥗', Mediterranean: '🫒', French: '🥐',
+  'Malaysian Chinese': '🍜',
+};
+
+function cuisineEmoji(cuisine: string | null | undefined): string {
+  return (cuisine && CUISINE_EMOJI[cuisine]) ?? '🍽️';
+}
+
 interface RecipeCardProps {
   recipe: Recipe;
   isBookmarked: boolean;
@@ -34,8 +45,9 @@ export default function RecipeCard({
             sizes="(max-width: 768px) 100vw, (max-width: 1280px) 50vw, 33vw"
           />
         ) : (
-          <div className="absolute inset-0 flex items-center justify-center bg-gray-100">
-            <span className="text-4xl">🍽️</span>
+          <div className="absolute inset-0 flex flex-col items-center justify-center bg-gradient-to-br from-brand-50 to-brand-100">
+            <span className="text-4xl mb-1 opacity-70">{cuisineEmoji(recipe.cuisine)}</span>
+            <span className="text-xs text-brand-400 font-medium">{recipe.cuisine ?? 'Recipe'}</span>
           </div>
         )}
 

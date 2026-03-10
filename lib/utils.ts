@@ -57,6 +57,9 @@ export const CUISINES = [
   'Thai',
   'Vietnamese',
   'Western',
+  'Mediterranean',
+  'French',
+  'Malaysian Chinese',
 ];
 
 export const DIETARY_TAGS = ['Vegetarian', 'Vegan', 'Gluten-Free', 'Dairy-Free'];
