@@ -1,5 +1,6 @@
 'use client';
 
+import { useState } from 'react';
 import Image from 'next/image';
 import { Recipe } from '@/types';
 import StarRating from '@/components/ui/StarRating';
@@ -29,6 +30,9 @@ export default function RecipeCard({
   onToggleBookmark,
   onSelect,
 }: RecipeCardProps) {
+  const [imgError, setImgError] = useState(false);
+  const showImage = !!recipe.thumbnail_url && !imgError;
+
   return (
     <div
       className="bg-white rounded-2xl overflow-hidden shadow-sm hover:shadow-md transition cursor-pointer group"
@@ -36,13 +40,15 @@ export default function RecipeCard({
     >
       {/* Thumbnail */}
       <div className="relative h-40 bg-gray-100">
-        {recipe.thumbnail_url ? (
+        {showImage ? (
           <Image
-            src={recipe.thumbnail_url}
+            src={recipe.thumbnail_url!}
             alt={recipe.name}
             fill
             className="object-cover group-hover:scale-105 transition duration-300"
             sizes="(max-width: 768px) 100vw, (max-width: 1280px) 50vw, 33vw"
+            onError={() => setImgError(true)}
+            unoptimized
           />
         ) : (
           <div className="absolute inset-0 flex flex-col items-center justify-center bg-gradient-to-br from-brand-50 to-brand-100">

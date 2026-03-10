@@ -30,7 +30,7 @@ const SLOT_ORDER: MealSlot[] = ['breakfast', 'lunch', 'dinner'];
 export default function DashboardClient({ username, upcomingMeals, bookmarkedIds, tomorrow, dayAfter }: Props) {
   const [recommendations, setRecommendations] = useState<Recommendation[]>([]);
   const [recLoading, setRecLoading] = useState(true);
-  const [recError, setRecError] = useState(false);
+  const [recError, setRecError] = useState<string | null>(null);
   const [selectedRecipe, setSelectedRecipe] = useState<Recipe | null>(null);
   const [savePlanRecipe, setSavePlanRecipe] = useState<Recipe | null>(null);
   const [bookmarks, setBookmarks] = useState<Set<string>>(new Set(bookmarkedIds));
@@ -38,11 +38,11 @@ export default function DashboardClient({ username, upcomingMeals, bookmarkedIds
 
   const fetchRecommendations = useCallback(async () => {
     setRecLoading(true);
-    setRecError(false);
+    setRecError(null);
     try {
       const res = await fetch('/api/recommendations', { method: 'POST' });
-      if (!res.ok) throw new Error();
       const data = await res.json();
+      if (!res.ok) throw new Error(data.error ?? 'Request failed');
 
       // Fetch recipe details
       const ids = (data.recommendations as Recommendation[]).map((r) => r.recipe_id);
@@ -59,8 +59,8 @@ export default function DashboardClient({ username, upcomingMeals, bookmarkedIds
           recipe: recipeMap[r.recipe_id],
         }))
       );
-    } catch {
-      setRecError(true);
+    } catch (e) {
+      setRecError(e instanceof Error ? e.message : 'Unknown error');
     } finally {
       setRecLoading(false);
     }
@@ -145,7 +145,10 @@ export default function DashboardClient({ username, upcomingMeals, bookmarkedIds
 
         {recError && (
           <div className="bg-red-50 border border-red-200 rounded-2xl p-4 text-center">
-            <p className="text-sm text-red-600 mb-3">Failed to load suggestions.</p>
+            <p className="text-sm text-red-600 mb-1">Failed to load suggestions.</p>
+            {recError !== 'Request failed' && (
+              <p className="text-xs text-red-500 mb-3 font-mono break-all">{recError}</p>
+            )}
             <button onClick={fetchRecommendations} className="text-sm font-medium text-red-700 underline">
               Try again
             </button>

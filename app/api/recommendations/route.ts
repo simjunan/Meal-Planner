@@ -72,7 +72,7 @@ export async function POST(request: NextRequest) {
       .from('recipes')
       .select('id, name, cuisine, avg_rating, rating_count, cook_time_mins')
       .order('rating_count', { ascending: false })
-      .limit(200),
+      .limit(80),
   ]);
 
   const last7DayIds = (recentMeals ?? [])
@@ -105,7 +105,7 @@ Context:
 Available recipes (id | name | cuisine | avg_rating):
 ${(candidates ?? [])
   .filter((r) => !last7DayIds.includes(r.id))
-  .slice(0, 200)
+  .slice(0, 80)
   .map((r) => `${r.id} | ${r.name} | ${r.cuisine ?? 'N/A'} | ${r.avg_rating ?? 'N/A'}`)
   .join('\n')}
 
@@ -121,17 +121,27 @@ Return ONLY valid JSON in this exact format (no markdown, no explanation):
   ]
 }`;
 
+  if (!process.env.GROQ_API_KEY) {
+    return NextResponse.json({ error: 'GROQ_API_KEY is not configured' }, { status: 503 });
+  }
+
   const groq = new Groq({ apiKey: process.env.GROQ_API_KEY });
 
-  const completion = await groq.chat.completions.create({
-    model: 'llama-3.1-8b-instant',
-    messages: [{ role: 'user', content: prompt }],
-    temperature: 0.7,
-    max_tokens: 512,
-    response_format: { type: 'json_object' },
-  });
+  let raw: string;
+  try {
+    const completion = await groq.chat.completions.create({
+      model: 'llama-3.1-8b-instant',
+      messages: [{ role: 'user', content: prompt }],
+      temperature: 0.7,
+      max_tokens: 512,
+      response_format: { type: 'json_object' },
+    });
+    raw = completion.choices[0]?.message?.content ?? '{}';
+  } catch (groqErr) {
+    const msg = groqErr instanceof Error ? groqErr.message : 'Groq request failed';
+    return NextResponse.json({ error: msg }, { status: 502 });
+  }
 
-  const raw = completion.choices[0]?.message?.content ?? '{}';
   let parsed: { recommendations?: unknown[] };
   try {
     parsed = JSON.parse(raw);
