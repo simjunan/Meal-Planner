@@ -3,12 +3,19 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { Recipe, MealSlot } from '@/types';
-import { CUISINES, DIETARY_TAGS } from '@/lib/utils';
+import { DIETARY_TAGS } from '@/lib/utils';
 import RecipeCard from '@/components/recipes/RecipeCard';
 import RecipeDetailPanel from '@/components/recipes/RecipeDetailPanel';
 import SaveToPlanModal from '@/components/recipes/SaveToPlanModal';
 import SkeletonCard from '@/components/ui/SkeletonCard';
 import { ToastContainer, showToast } from '@/components/ui/Toast';
+
+const DISH_TYPE_CHIPS = [
+  { val: '', label: 'All Types' },
+  { val: 'soup', label: '🍲 Soup' },
+  { val: 'meat', label: '🥩 Meat' },
+  { val: 'vegetable', label: '🥦 Vegetable' },
+];
 
 export default function RecipesPage() {
   const searchParams = useSearchParams();
@@ -26,14 +33,26 @@ export default function RecipesPage() {
   const [dietary, setDietary] = useState<string[]>(
     searchParams.get('dietary')?.split(',').filter(Boolean) ?? []
   );
+  const [dishType, setDishType] = useState(searchParams.get('dishType') ?? '');
   const [sort, setSort] = useState(searchParams.get('sort') ?? 'popular');
 
+  const [cuisines, setCuisines] = useState<string[]>(['All']);
   const [selectedRecipe, setSelectedRecipe] = useState<Recipe | null>(null);
   const [savePlanRecipe, setSavePlanRecipe] = useState<Recipe | null>(null);
   const [bookmarks, setBookmarks] = useState<Set<string>>(new Set());
   const [showFilters, setShowFilters] = useState(false);
 
   const debounceRef = useRef<NodeJS.Timeout>();
+
+  // Load cuisines that have at least one recipe
+  useEffect(() => {
+    fetch('/api/recipes/cuisines').then(async (r) => {
+      if (r.ok) {
+        const data = await r.json();
+        setCuisines(data.cuisines ?? ['All']);
+      }
+    });
+  }, []);
 
   const fetchRecipes = useCallback(async (reset = false) => {
     if (reset) {
@@ -48,6 +67,7 @@ export default function RecipesPage() {
       cuisine: selectedCuisine === 'All' ? '' : selectedCuisine,
       cookTime,
       dietary: dietary.join(','),
+      dishType,
       sort,
       page: reset ? '1' : String(page + 1),
     });
@@ -65,7 +85,7 @@ export default function RecipesPage() {
     setTotal(data.total ?? 0);
     setLoading(false);
     setLoadingMore(false);
-  }, [search, selectedCuisine, cookTime, dietary, sort, page]);
+  }, [search, selectedCuisine, cookTime, dietary, dishType, sort, page]);
 
   // Debounced search
   useEffect(() => {
@@ -75,7 +95,7 @@ export default function RecipesPage() {
     }, 300);
     return () => clearTimeout(debounceRef.current);
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [search, selectedCuisine, cookTime, dietary, sort]);
+  }, [search, selectedCuisine, cookTime, dietary, dishType, sort]);
 
   // Load bookmarks
   useEffect(() => {
@@ -127,6 +147,8 @@ export default function RecipesPage() {
     );
   }
 
+  const hasActiveFilters = cookTime || dietary.length || selectedCuisine !== 'All' || dishType;
+
   return (
     <div className="max-w-6xl mx-auto">
       {/* Search bar */}
@@ -147,7 +169,7 @@ export default function RecipesPage() {
           <button
             onClick={() => setShowFilters(!showFilters)}
             className={`h-11 px-4 rounded-xl border-2 text-sm font-medium transition flex items-center gap-1.5 ${
-              showFilters || cookTime || dietary.length || selectedCuisine !== 'All'
+              showFilters || hasActiveFilters
                 ? 'border-brand-500 bg-brand-50 text-brand-700'
                 : 'border-gray-200 text-gray-600 hover:border-gray-300'
             }`}
@@ -159,9 +181,9 @@ export default function RecipesPage() {
           </button>
         </div>
 
-        {/* Cuisine chips */}
+        {/* Cuisine chips — only cuisines with actual recipes */}
         <div className="flex gap-2 overflow-x-auto scrollbar-hide mt-2 pb-0.5">
-          {CUISINES.map((c) => (
+          {cuisines.map((c) => (
             <button
               key={c}
               onClick={() => setSelectedCuisine(c)}
@@ -179,6 +201,24 @@ export default function RecipesPage() {
         {/* Expanded filters */}
         {showFilters && (
           <div className="mt-3 pt-3 border-t border-gray-100 space-y-3">
+            <div>
+              <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">Dish Type</p>
+              <div className="flex gap-2 flex-wrap">
+                {DISH_TYPE_CHIPS.map(({ val, label }) => (
+                  <button
+                    key={val}
+                    onClick={() => setDishType(val)}
+                    className={`h-8 px-3 rounded-full text-xs font-medium transition border ${
+                      dishType === val
+                        ? 'bg-orange-500 text-white border-orange-500'
+                        : 'bg-white text-gray-600 border-gray-200 hover:border-gray-300'
+                    }`}
+                  >
+                    {label}
+                  </button>
+                ))}
+              </div>
+            </div>
             <div>
               <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">Cook Time</p>
               <div className="flex gap-2 flex-wrap">
@@ -255,7 +295,7 @@ export default function RecipesPage() {
             <p className="text-gray-500 font-medium">No recipes found</p>
             <p className="text-sm text-gray-400 mt-1">Try different keywords or remove some filters.</p>
             <button
-              onClick={() => { setSearch(''); setSelectedCuisine('All'); setCookTime(''); setDietary([]); }}
+              onClick={() => { setSearch(''); setSelectedCuisine('All'); setCookTime(''); setDietary([]); setDishType(''); }}
               className="mt-4 text-sm font-medium text-brand-600 underline"
             >
               Clear all filters

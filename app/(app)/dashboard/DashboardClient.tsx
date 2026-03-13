@@ -112,6 +112,12 @@ export default function DashboardClient({ username, upcomingMeals, bookmarkedIds
   const day1Recs = recommendations.filter((r) => r.day_offset === 1 && !dismissed.has(`${r.recipe_id}-${r.day_offset}-${r.meal_slot}`));
   const day2Recs = recommendations.filter((r) => r.day_offset === 2 && !dismissed.has(`${r.recipe_id}-${r.day_offset}-${r.meal_slot}`));
 
+  // Determine which slots are already planned per day
+  const tomorrowPlannedSlots = new Set(upcomingMeals.filter((m) => m.plan_date === tomorrow).map((m) => m.meal_slot));
+  const dayAfterPlannedSlots = new Set(upcomingMeals.filter((m) => m.plan_date === dayAfter).map((m) => m.meal_slot));
+  const day1AllFilled = tomorrowPlannedSlots.size === 3;
+  const day2AllFilled = dayAfterPlannedSlots.size === 3;
+
   function formatDisplayDate(dateStr: string) {
     return new Date(dateStr + 'T00:00:00').toLocaleDateString('en-US', { weekday: 'long', month: 'short', day: 'numeric' });
   }
@@ -156,65 +162,70 @@ export default function DashboardClient({ username, upcomingMeals, bookmarkedIds
         )}
 
         {!recError && [
-          { label: `Tomorrow · ${formatDisplayDate(tomorrow)}`, recs: day1Recs, dayOffset: 1 },
-          { label: `Day After · ${formatDisplayDate(dayAfter)}`, recs: day2Recs, dayOffset: 2 },
-        ].map(({ label, recs, dayOffset }) => (
-          <div key={dayOffset} className="mb-4">
-            <h3 className="text-sm font-semibold text-gray-700 mb-2">{label}</h3>
-            <div className="flex gap-3 overflow-x-auto pb-2 scrollbar-hide md:grid md:grid-cols-3 md:overflow-visible">
-              {recLoading
-                ? Array.from({ length: 3 }).map((_, i) => (
-                    <div key={i} className="min-w-[160px] md:min-w-0">
-                      <SkeletonCard />
-                    </div>
-                  ))
-                : SLOT_ORDER.map((slot) => {
-                    const rec = recs.find((r) => r.meal_slot === slot);
-                    if (!rec?.recipe) return (
-                      <div key={slot} className="min-w-[160px] md:min-w-0 bg-white rounded-2xl border-2 border-dashed border-gray-200 flex flex-col items-center justify-center p-4 gap-1 min-h-[120px]">
-                        <span className="text-xs text-gray-400">{MEAL_SLOT_LABELS[slot]}</span>
-                        <span className="text-xs text-gray-300">No suggestion</span>
+          { label: `Tomorrow · ${formatDisplayDate(tomorrow)}`, recs: day1Recs, dayOffset: 1, allFilled: day1AllFilled, plannedSlots: tomorrowPlannedSlots },
+          { label: `Day After · ${formatDisplayDate(dayAfter)}`, recs: day2Recs, dayOffset: 2, allFilled: day2AllFilled, plannedSlots: dayAfterPlannedSlots },
+        ].map(({ label, recs, dayOffset, allFilled, plannedSlots }) => {
+          // Hide day section if all 3 slots are already planned (no suggestions needed)
+          if (!recLoading && allFilled) return null;
+          // Also hide if loading is done and there are no suggestions for this day
+          if (!recLoading && recs.length === 0 && plannedSlots.size === 0) return null;
+
+          return (
+            <div key={dayOffset} className="mb-4">
+              <h3 className="text-sm font-semibold text-gray-700 mb-2">{label}</h3>
+              <div className="flex gap-3 overflow-x-auto pb-2 scrollbar-hide md:grid md:grid-cols-3 md:overflow-visible">
+                {recLoading
+                  ? Array.from({ length: 3 }).map((_, i) => (
+                      <div key={i} className="min-w-[160px] md:min-w-0">
+                        <SkeletonCard />
                       </div>
-                    );
-                    const recipe = rec.recipe;
-                    return (
-                      <div key={slot} className="min-w-[160px] md:min-w-0 bg-white rounded-2xl overflow-hidden shadow-sm flex flex-col">
-                        <div className="relative h-24 bg-gray-100 cursor-pointer" onClick={() => setSelectedRecipe(recipe)}>
-                          {recipe.thumbnail_url ? (
-                            <Image src={recipe.thumbnail_url} alt={recipe.name} fill className="object-cover" sizes="160px" />
-                          ) : (
-                            <div className="absolute inset-0 flex items-center justify-center text-2xl">🍽️</div>
-                          )}
-                          <button
-                            onClick={(e) => { e.stopPropagation(); setDismissed((p) => new Set([...Array.from(p), `${rec.recipe_id}-${rec.day_offset}-${rec.meal_slot}`])); }}
-                            className="absolute top-1.5 right-1.5 w-6 h-6 rounded-full bg-black/50 text-white flex items-center justify-center hover:bg-black/70 transition"
-                          >
-                            <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M6 18L18 6M6 6l12 12" />
-                            </svg>
-                          </button>
-                          <div className="absolute bottom-1 left-1.5 bg-black/60 text-white text-[10px] px-1.5 py-0.5 rounded-full">
-                            {MEAL_SLOT_LABELS[slot]}
+                    ))
+                  : SLOT_ORDER.filter((slot) => !plannedSlots.has(slot)).map((slot) => {
+                      const rec = recs.find((r) => r.meal_slot === slot);
+                      if (!rec?.recipe) return null;
+                      const recipe = rec.recipe;
+                      return (
+                        <div key={slot} className="min-w-[160px] md:min-w-0 bg-white rounded-2xl overflow-hidden shadow-sm flex flex-col">
+                          <div className="relative h-24 bg-gray-100 cursor-pointer" onClick={() => setSelectedRecipe(recipe)}>
+                            {recipe.thumbnail_url ? (
+                              <Image src={recipe.thumbnail_url} alt={recipe.name} fill className="object-cover" sizes="160px" />
+                            ) : (
+                              <div className="absolute inset-0 flex items-center justify-center text-2xl">🍽️</div>
+                            )}
+                            <button
+                              onClick={(e) => { e.stopPropagation(); setDismissed((p) => new Set([...Array.from(p), `${rec.recipe_id}-${rec.day_offset}-${rec.meal_slot}`])); }}
+                              className="absolute top-1.5 right-1.5 w-6 h-6 rounded-full bg-black/50 text-white flex items-center justify-center hover:bg-black/70 transition"
+                            >
+                              <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M6 18L18 6M6 6l12 12" />
+                              </svg>
+                            </button>
+                            <div className="absolute bottom-1 left-1.5 bg-black/60 text-white text-[10px] px-1.5 py-0.5 rounded-full">
+                              {MEAL_SLOT_LABELS[slot]}
+                            </div>
+                          </div>
+                          <div className="p-2.5 flex-1 flex flex-col">
+                            <p className="text-xs font-semibold text-gray-900 line-clamp-2 flex-1">{recipe.name}</p>
+                            {recipe.dish_type && recipe.dish_type !== 'other' && (
+                              <p className="text-[10px] text-brand-500 font-medium mt-0.5 capitalize">{recipe.dish_type}</p>
+                            )}
+                            {recipe.cook_time_mins && (
+                              <p className="text-[10px] text-gray-400 mt-0.5">{formatCookTime(recipe.cook_time_mins)}</p>
+                            )}
+                            <button
+                              onClick={() => { setSavePlanRecipe(recipe); }}
+                              className="mt-2 w-full h-7 bg-brand-500 hover:bg-brand-600 text-white text-xs font-semibold rounded-lg transition"
+                            >
+                              Add to Plan
+                            </button>
                           </div>
                         </div>
-                        <div className="p-2.5 flex-1 flex flex-col">
-                          <p className="text-xs font-semibold text-gray-900 line-clamp-2 flex-1">{recipe.name}</p>
-                          {recipe.cook_time_mins && (
-                            <p className="text-[10px] text-gray-400 mt-1">{formatCookTime(recipe.cook_time_mins)}</p>
-                          )}
-                          <button
-                            onClick={() => { setSavePlanRecipe(recipe); }}
-                            className="mt-2 w-full h-7 bg-brand-500 hover:bg-brand-600 text-white text-xs font-semibold rounded-lg transition"
-                          >
-                            Add to Plan
-                          </button>
-                        </div>
-                      </div>
-                    );
-                  })}
+                      );
+                    })}
+              </div>
             </div>
-          </div>
-        ))}
+          );
+        })}
       </section>
 
       {/* Upcoming meals */}

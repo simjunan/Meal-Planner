@@ -33,6 +33,7 @@ export async function GET(request: NextRequest) {
   const cookTime = searchParams.get('cookTime') ?? '';
   const dietary = searchParams.get('dietary') ?? '';
   const sort = searchParams.get('sort') ?? 'popular';
+  const dishType = searchParams.get('dishType') ?? '';
   const page = parseInt(searchParams.get('page') ?? '1', 10);
   const limit = 24;
   const offset = (page - 1) * limit;
@@ -53,6 +54,10 @@ export async function GET(request: NextRequest) {
     query = query.gte('cook_time_mins', 30).lte('cook_time_mins', 60);
   } else if (cookTime === '>60') {
     query = query.gt('cook_time_mins', 60);
+  }
+
+  if (dishType) {
+    query = query.eq('dish_type', dishType);
   }
 
   if (dietary) {

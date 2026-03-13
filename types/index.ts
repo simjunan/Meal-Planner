@@ -11,6 +11,7 @@ export interface Recipe {
   ingredients_summary: string[] | null;
   dietary_tags: string[] | null;
   meal_type: string[] | null;
+  dish_type: string | null;
   crawled_at: string | null;
 }
 

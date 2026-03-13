@@ -6,6 +6,9 @@ import Groq from 'groq-sdk';
 // Vercel Hobby: 10s max execution. Groq is fast enough in practice.
 export const maxDuration = 10;
 
+const DISH_TYPES = ['soup', 'meat', 'vegetable'] as const;
+type DishType = typeof DISH_TYPES[number];
+
 function createSupabaseServer() {
   const cookieStore = cookies();
   return createServerClient(
@@ -48,6 +51,14 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ recommendations: cached.recommendations });
   }
 
+  // Compute target dates
+  const tomorrowDate = new Date();
+  tomorrowDate.setDate(tomorrowDate.getDate() + 1);
+  const dayAfterDate = new Date();
+  dayAfterDate.setDate(dayAfterDate.getDate() + 2);
+  const tomorrowStr = tomorrowDate.toISOString().split('T')[0];
+  const dayAfterStr = dayAfterDate.toISOString().split('T')[0];
+
   // Gather context for the prompt
   const sevenDaysAgo = new Date();
   sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 7);
@@ -55,7 +66,7 @@ export async function POST(request: NextRequest) {
   const fourteenDaysAgo = new Date();
   fourteenDaysAgo.setDate(fourteenDaysAgo.getDate() - 14);
 
-  const [{ data: recentMeals }, { data: bookmarks }, { data: candidates }] = await Promise.all([
+  const [{ data: recentMeals }, { data: bookmarks }, { data: candidates }, { data: upcomingPlans }] = await Promise.all([
     supabase
       .from('meal_plans')
       .select('recipe_id, plan_date, recipes(id, name, cuisine)')
@@ -70,10 +81,41 @@ export async function POST(request: NextRequest) {
       .limit(30),
     supabase
       .from('recipes')
-      .select('id, name, cuisine, avg_rating, rating_count, cook_time_mins')
+      .select('id, name, cuisine, dish_type, avg_rating, rating_count, cook_time_mins')
       .order('rating_count', { ascending: false })
       .limit(80),
+    // Fetch existing plans for tomorrow and day-after with dish_type
+    supabase
+      .from('meal_plans')
+      .select('plan_date, meal_slot, recipes(dish_type)')
+      .eq('user_id', user.id)
+      .in('plan_date', [tomorrowStr, dayAfterStr]),
   ]);
+
+  // Analyse what's already planned for each upcoming day
+  function getDayInfo(dateStr: string) {
+    const dayPlans = (upcomingPlans ?? []).filter((p) => p.plan_date === dateStr);
+    const plannedSlots = new Set(dayPlans.map((p) => p.meal_slot as string));
+    const plannedDishTypes = new Set(
+      dayPlans
+        .map((p) => {
+          const r = p.recipes;
+          return Array.isArray(r) ? r[0]?.dish_type : (r as { dish_type?: string } | null)?.dish_type;
+        })
+        .filter((t): t is string => !!t && t !== 'other')
+    );
+    const freeSlots = (['breakfast', 'lunch', 'dinner'] as const).filter((s) => !plannedSlots.has(s));
+    const neededTypes: DishType[] = DISH_TYPES.filter((t) => !plannedDishTypes.has(t));
+    return { freeSlots, neededTypes, isComplete: freeSlots.length === 0 };
+  }
+
+  const day1Info = getDayInfo(tomorrowStr);
+  const day2Info = getDayInfo(dayAfterStr);
+
+  // If both days are fully planned, return empty recommendations
+  if (day1Info.isComplete && day2Info.isComplete) {
+    return NextResponse.json({ recommendations: [] });
+  }
 
   const last7DayIds = (recentMeals ?? [])
     .filter((m) => m.plan_date >= sevenDaysAgo.toISOString().split('T')[0])
@@ -95,31 +137,55 @@ export async function POST(request: NextRequest) {
 
   const seenRecipeIds = new Set((recentMeals ?? []).map((m) => m.recipe_id));
 
-  const prompt = `You are a meal planner AI. Suggest 6 recipes for the next 2 days (breakfast, lunch, dinner each day).
+  // Build per-day slot instructions
+  function buildDayInstructions(info: ReturnType<typeof getDayInfo>, dayLabel: string, dayOffset: number): string {
+    if (info.isComplete) return `Day ${dayOffset} (${dayLabel}): All slots filled — skip entirely.`;
+    if (info.freeSlots.length === 0) return `Day ${dayOffset} (${dayLabel}): All slots filled — skip entirely.`;
+
+    const slotLines = info.freeSlots.map((slot, i) => {
+      const neededType = info.neededTypes[i] ?? 'any';
+      return `  - ${slot}: suggest a "${neededType}" dish`;
+    });
+    return `Day ${dayOffset} (${dayLabel}):\n${slotLines.join('\n')}`;
+  }
+
+  const day1Instructions = buildDayInstructions(day1Info, `tomorrow ${tomorrowStr}`, 1);
+  const day2Instructions = buildDayInstructions(day2Info, `day after ${dayAfterStr}`, 2);
+
+  // Build expected output schema based on what's actually needed
+  const expectedSlots: { day_offset: 1 | 2; meal_slot: string }[] = [
+    ...day1Info.freeSlots.map((slot) => ({ day_offset: 1 as const, meal_slot: slot })),
+    ...day2Info.freeSlots.map((slot) => ({ day_offset: 2 as const, meal_slot: slot })),
+  ];
+
+  const expectedJson = JSON.stringify(
+    { recommendations: expectedSlots.map((s) => ({ recipe_id: '<uuid>', ...s })) },
+    null,
+    2
+  );
+
+  const prompt = `You are a meal planner AI. Suggest recipes only for the empty meal slots listed below.
+
+Goal: Each day's meals should collectively include 1 soup dish, 1 meat dish, and 1 vegetable dish across breakfast/lunch/dinner.
 
 Context:
 - Top 3 preferred cuisines: ${topCuisines.join(', ') || 'no preference'}
 - Exclude these recipe IDs (last 7 days): ${last7DayIds.join(', ') || 'none'}
-- At least 1 suggestion per day must be a "discovery" (not in seen IDs: ${[...seenRecipeIds].join(', ') || 'none'})
+- At least 1 suggestion must be a discovery (not in: ${[...seenRecipeIds].slice(0, 20).join(', ') || 'none'})
 
-Available recipes (id | name | cuisine | avg_rating):
+Instructions per day:
+${day1Instructions}
+${day2Instructions}
+
+Available recipes (id | name | cuisine | dish_type | avg_rating):
 ${(candidates ?? [])
   .filter((r) => !last7DayIds.includes(r.id))
   .slice(0, 80)
-  .map((r) => `${r.id} | ${r.name} | ${r.cuisine ?? 'N/A'} | ${r.avg_rating ?? 'N/A'}`)
+  .map((r) => `${r.id} | ${r.name} | ${r.cuisine ?? 'N/A'} | ${r.dish_type ?? 'other'} | ${r.avg_rating ?? 'N/A'}`)
   .join('\n')}
 
 Return ONLY valid JSON in this exact format (no markdown, no explanation):
-{
-  "recommendations": [
-    {"recipe_id": "<uuid>", "day_offset": 1, "meal_slot": "breakfast"},
-    {"recipe_id": "<uuid>", "day_offset": 1, "meal_slot": "lunch"},
-    {"recipe_id": "<uuid>", "day_offset": 1, "meal_slot": "dinner"},
-    {"recipe_id": "<uuid>", "day_offset": 2, "meal_slot": "breakfast"},
-    {"recipe_id": "<uuid>", "day_offset": 2, "meal_slot": "lunch"},
-    {"recipe_id": "<uuid>", "day_offset": 2, "meal_slot": "dinner"}
-  ]
-}`;
+${expectedJson}`;
 
   if (!process.env.GROQ_API_KEY) {
     return NextResponse.json({ error: 'GROQ_API_KEY is not configured' }, { status: 503 });

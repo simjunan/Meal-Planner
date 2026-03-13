@@ -95,13 +95,7 @@ export default function CalendarPage() {
     if (!res.ok) {
       showToast('Failed to save meal.', { type: 'error' });
     } else {
-      const data = await res.json();
-      setMealPlans((prev) => {
-        const filtered = prev.filter(
-          (mp) => !(mp.plan_date === date && mp.meal_slot === slot)
-        );
-        return [...filtered, data.meal_plan];
-      });
+      await fetchMealPlans();
       showToast('Meal saved!', { type: 'success' });
     }
   }
