@@ -172,7 +172,7 @@ export default function DashboardClient({ username, upcomingMeals, bookmarkedIds
             {recError !== 'Request failed' && (
               <p className="text-xs text-red-500 mb-3 font-mono break-all">{recError}</p>
             )}
-            <button onClick={fetchRecommendations} className="text-sm font-medium text-red-700 underline">
+            <button onClick={() => fetchRecommendations()} className="text-sm font-medium text-red-700 underline">
               Try again
             </button>
           </div>
