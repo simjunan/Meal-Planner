@@ -57,10 +57,7 @@ export async function POST(request: NextRequest) {
 
   const { data, error } = await supabase
     .from('meal_plans')
-    .upsert(
-      { user_id: user.id, recipe_id, plan_date, meal_slot },
-      { onConflict: 'user_id,plan_date,meal_slot' }
-    )
+    .insert({ user_id: user.id, recipe_id, plan_date, meal_slot })
     .select('*, recipe:recipes(*)')
     .single();
 

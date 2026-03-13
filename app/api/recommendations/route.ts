@@ -1,13 +1,14 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createServerClient } from '@supabase/ssr';
 import { cookies } from 'next/headers';
-import Groq from 'groq-sdk';
 
-// Vercel Hobby: 10s max execution. Groq is fast enough in practice.
 export const maxDuration = 10;
 
 const DISH_TYPES = ['soup', 'meat', 'vegetable'] as const;
 type DishType = typeof DISH_TYPES[number];
+type MealSlot = 'breakfast' | 'lunch' | 'dinner';
+
+const ALL_SLOTS: MealSlot[] = ['breakfast', 'lunch', 'dinner'];
 
 function createSupabaseServer() {
   const cookieStore = cookies();
@@ -67,32 +68,36 @@ export async function POST(request: NextRequest) {
   const tomorrowStr = tomorrowDate.toISOString().split('T')[0];
   const dayAfterStr = dayAfterDate.toISOString().split('T')[0];
 
-  // Gather context for the prompt
   const sevenDaysAgo = new Date();
   sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 7);
-
   const fourteenDaysAgo = new Date();
   fourteenDaysAgo.setDate(fourteenDaysAgo.getDate() - 14);
 
-  const [{ data: recentMeals }, { data: bookmarks }, { data: candidates }, { data: upcomingPlans }] = await Promise.all([
+  // Fetch all needed data in parallel
+  const [
+    { data: recentMeals },
+    { data: bookmarks },
+    { data: candidatePool },
+    { data: upcomingPlans },
+  ] = await Promise.all([
     supabase
       .from('meal_plans')
-      .select('recipe_id, plan_date, recipes(id, name, cuisine)')
+      .select('recipe_id, plan_date')
       .eq('user_id', user.id)
       .gte('plan_date', fourteenDaysAgo.toISOString().split('T')[0])
       .order('plan_date', { ascending: false }),
     supabase
       .from('bookmarks')
-      .select('recipe_id, recipes(id, name, cuisine)')
+      .select('recipe_id, recipes(cuisine)')
       .eq('user_id', user.id)
-      .order('created_at', { ascending: false })
       .limit(30),
+    // Fetch candidate pool sorted by rating — no LLM needed
     supabase
       .from('recipes')
-      .select('id, name, cuisine, dish_type, avg_rating, rating_count, cook_time_mins')
-      .order('rating_count', { ascending: false })
-      .limit(80),
-    // Fetch existing plans for tomorrow and day-after with dish_type
+      .select('id, cuisine, dish_type, avg_rating')
+      .order('avg_rating', { ascending: false })
+      .limit(200),
+    // Existing plans for tomorrow and day-after with dish_type info
     supabase
       .from('meal_plans')
       .select('plan_date, meal_slot, recipes(dish_type)')
@@ -100,10 +105,10 @@ export async function POST(request: NextRequest) {
       .in('plan_date', [tomorrowStr, dayAfterStr]),
   ]);
 
-  // Analyse what's already planned for each upcoming day
+  // Determine free slots and already-covered dish types for a given day
   function getDayInfo(dateStr: string) {
     const dayPlans = (upcomingPlans ?? []).filter((p) => p.plan_date === dateStr);
-    const plannedSlots = new Set(dayPlans.map((p) => p.meal_slot as string));
+    const plannedSlots = new Set(dayPlans.map((p) => p.meal_slot as MealSlot));
     const plannedDishTypes = new Set(
       dayPlans
         .map((p) => {
@@ -112,127 +117,96 @@ export async function POST(request: NextRequest) {
         })
         .filter((t): t is string => !!t && t !== 'other')
     );
-    const freeSlots = (['breakfast', 'lunch', 'dinner'] as const).filter((s) => !plannedSlots.has(s));
-    const neededTypes: DishType[] = DISH_TYPES.filter((t) => !plannedDishTypes.has(t));
+    const freeSlots = ALL_SLOTS.filter((s) => !plannedSlots.has(s));
+    const neededTypes = DISH_TYPES.filter((t) => !plannedDishTypes.has(t));
     return { freeSlots, neededTypes, isComplete: freeSlots.length === 0 };
   }
 
   const day1Info = getDayInfo(tomorrowStr);
   const day2Info = getDayInfo(dayAfterStr);
 
-  // If both days are fully planned, return empty recommendations
   if (day1Info.isComplete && day2Info.isComplete) {
     return NextResponse.json({ recommendations: [] });
   }
 
-  const last7DayIds = (recentMeals ?? [])
-    .filter((m) => m.plan_date >= sevenDaysAgo.toISOString().split('T')[0])
-    .map((m) => m.recipe_id);
-
-  const bookmarkedCuisines = (bookmarks ?? [])
-    .map((b) => {
-      const r = b.recipes;
-      return Array.isArray(r) ? r[0]?.cuisine : (r as { cuisine?: string } | null)?.cuisine;
-    })
-    .filter(Boolean);
-
-  const cuisineCounts: Record<string, number> = {};
-  bookmarkedCuisines.forEach((c: string | undefined) => { if (c) cuisineCounts[c] = (cuisineCounts[c] ?? 0) + 1; });
-  const topCuisines = Object.entries(cuisineCounts)
-    .sort((a, b) => b[1] - a[1])
-    .slice(0, 3)
-    .map(([c]) => c);
-
-  const seenRecipeIds = new Set((recentMeals ?? []).map((m) => m.recipe_id));
-
-  // Build per-day slot instructions
-  function buildDayInstructions(info: ReturnType<typeof getDayInfo>, dayLabel: string, dayOffset: number): string {
-    if (info.isComplete) return `Day ${dayOffset} (${dayLabel}): All slots filled — skip entirely.`;
-    if (info.freeSlots.length === 0) return `Day ${dayOffset} (${dayLabel}): All slots filled — skip entirely.`;
-
-    const slotLines = info.freeSlots.map((slot, i) => {
-      const neededType = info.neededTypes[i] ?? 'any';
-      return `  - ${slot}: suggest a "${neededType}" dish`;
-    });
-    return `Day ${dayOffset} (${dayLabel}):\n${slotLines.join('\n')}`;
-  }
-
-  const day1Instructions = buildDayInstructions(day1Info, `tomorrow ${tomorrowStr}`, 1);
-  const day2Instructions = buildDayInstructions(day2Info, `day after ${dayAfterStr}`, 2);
-
-  // Build expected output schema based on what's actually needed
-  const expectedSlots: { day_offset: 1 | 2; meal_slot: string }[] = [
-    ...day1Info.freeSlots.map((slot) => ({ day_offset: 1 as const, meal_slot: slot })),
-    ...day2Info.freeSlots.map((slot) => ({ day_offset: 2 as const, meal_slot: slot })),
-  ];
-
-  const expectedJson = JSON.stringify(
-    { recommendations: expectedSlots.map((s) => ({ recipe_id: '<uuid>', ...s })) },
-    null,
-    2
+  // Build the exclude set (recipes eaten in the last 7 days)
+  const last7DayIds = new Set(
+    (recentMeals ?? [])
+      .filter((m) => m.plan_date >= sevenDaysAgo.toISOString().split('T')[0])
+      .map((m) => m.recipe_id)
   );
 
-  const prompt = `You are a meal planner AI. Suggest recipes only for the empty meal slots listed below.
+  // Derive preferred cuisines from bookmarks
+  const cuisineCounts: Record<string, number> = {};
+  (bookmarks ?? []).forEach((b) => {
+    const r = b.recipes;
+    const cuisine = Array.isArray(r) ? r[0]?.cuisine : (r as { cuisine?: string } | null)?.cuisine;
+    if (cuisine) cuisineCounts[cuisine] = (cuisineCounts[cuisine] ?? 0) + 1;
+  });
+  const preferredCuisines = new Set(
+    Object.entries(cuisineCounts)
+      .sort((a, b) => b[1] - a[1])
+      .slice(0, 3)
+      .map(([c]) => c)
+  );
 
-Goal: Each day's meals should collectively include 1 soup dish, 1 meat dish, and 1 vegetable dish across breakfast/lunch/dinner.
+  // Filter out recently eaten recipes; pool is already sorted by avg_rating DESC
+  const available = (candidatePool ?? []).filter((r) => !last7DayIds.has(r.id));
 
-Context:
-- Top 3 preferred cuisines: ${topCuisines.join(', ') || 'no preference'}
-- Exclude these recipe IDs (last 7 days): ${last7DayIds.join(', ') || 'none'}
-- At least 1 suggestion must be a discovery (not in: ${[...seenRecipeIds].slice(0, 20).join(', ') || 'none'})
+  // Track picked IDs within this request to avoid suggesting the same recipe twice
+  const pickedIds = new Set<string>();
 
-Instructions per day:
-${day1Instructions}
-${day2Instructions}
-
-Available recipes (id | name | cuisine | dish_type | avg_rating):
-${(candidates ?? [])
-  .filter((r) => !last7DayIds.includes(r.id))
-  .slice(0, 80)
-  .map((r) => `${r.id} | ${r.name} | ${r.cuisine ?? 'N/A'} | ${r.dish_type ?? 'other'} | ${r.avg_rating ?? 'N/A'}`)
-  .join('\n')}
-
-Return ONLY valid JSON in this exact format (no markdown, no explanation):
-${expectedJson}`;
-
-  if (!process.env.GROQ_API_KEY) {
-    return NextResponse.json({ error: 'GROQ_API_KEY is not configured' }, { status: 503 });
+  function pickForSlot(dishType: DishType | null): string | null {
+    // Pass 1: preferred cuisine + correct dish type
+    let match = available.find(
+      (r) =>
+        !pickedIds.has(r.id) &&
+        (dishType === null || r.dish_type === dishType) &&
+        preferredCuisines.has(r.cuisine ?? '')
+    );
+    // Pass 2: any cuisine + correct dish type
+    if (!match) {
+      match = available.find(
+        (r) => !pickedIds.has(r.id) && (dishType === null || r.dish_type === dishType)
+      );
+    }
+    // Pass 3: ignore dish_type (fallback when dish_type column is not populated in DB)
+    if (!match) {
+      match = available.find((r) => !pickedIds.has(r.id));
+    }
+    if (!match) return null;
+    pickedIds.add(match.id);
+    return match.id;
   }
 
-  const groq = new Groq({ apiKey: process.env.GROQ_API_KEY });
+  // Build the full list of slots that need filling, with their assigned dish types
+  const slotsToFill: { dayOffset: 1 | 2; slot: MealSlot; dishType: DishType | null }[] = [
+    ...day1Info.freeSlots.map((slot, i) => ({
+      dayOffset: 1 as const,
+      slot,
+      dishType: day1Info.neededTypes[i] ?? null,
+    })),
+    ...day2Info.freeSlots.map((slot, i) => ({
+      dayOffset: 2 as const,
+      slot,
+      dishType: day2Info.neededTypes[i] ?? null,
+    })),
+  ];
 
-  let raw: string;
-  try {
-    const completion = await groq.chat.completions.create({
-      model: 'llama-3.1-8b-instant',
-      messages: [{ role: 'user', content: prompt }],
-      temperature: 0.7,
-      max_tokens: 512,
-      response_format: { type: 'json_object' },
-    });
-    raw = completion.choices[0]?.message?.content ?? '{}';
-  } catch (groqErr) {
-    const msg = groqErr instanceof Error ? groqErr.message : 'Groq request failed';
-    return NextResponse.json({ error: msg }, { status: 502 });
-  }
-
-  let parsed: { recommendations?: unknown[] };
-  try {
-    parsed = JSON.parse(raw);
-  } catch {
-    return NextResponse.json({ error: 'AI parse error' }, { status: 500 });
-  }
-
-  if (!parsed.recommendations) {
-    return NextResponse.json({ error: 'No recommendations returned' }, { status: 500 });
-  }
+  const recommendations = slotsToFill
+    .map(({ dayOffset, slot, dishType }) => {
+      const recipeId = pickForSlot(dishType);
+      if (!recipeId) return null;
+      return { recipe_id: recipeId, day_offset: dayOffset, meal_slot: slot };
+    })
+    .filter((r): r is NonNullable<typeof r> => r !== null);
 
   // Cache for today
   await supabase.from('ai_recommendation_cache').upsert({
     user_id: user.id,
     cache_date: today,
-    recommendations: parsed.recommendations,
+    recommendations,
   });
 
-  return NextResponse.json({ recommendations: parsed.recommendations });
+  return NextResponse.json({ recommendations });
 }
