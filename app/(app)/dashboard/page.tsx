@@ -35,7 +35,6 @@ export default async function DashboardPage() {
       upcomingMeals={upcomingMeals ?? []}
       bookmarkedIds={(bookmarkIds ?? []).map((b) => b.recipe_id)}
       tomorrow={tomorrow}
-      dayAfter={dayAfter}
     />
   );
 }

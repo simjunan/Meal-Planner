@@ -1,7 +1,9 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createServerClient } from '@supabase/ssr';
 import { cookies } from 'next/headers';
+import Groq from 'groq-sdk';
 
+// Vercel Hobby: 10s max execution.
 export const maxDuration = 10;
 
 const DISH_TYPES = ['soup', 'meat', 'vegetable'] as const;
@@ -60,29 +62,25 @@ export async function POST(request: NextRequest) {
     }
   }
 
-  // Compute target dates
+  // Suggest for tomorrow only — single day keeps the AI prompt simple and reliable
   const tomorrowDate = new Date();
   tomorrowDate.setDate(tomorrowDate.getDate() + 1);
-  const dayAfterDate = new Date();
-  dayAfterDate.setDate(dayAfterDate.getDate() + 2);
   const tomorrowStr = tomorrowDate.toISOString().split('T')[0];
-  const dayAfterStr = dayAfterDate.toISOString().split('T')[0];
 
   const sevenDaysAgo = new Date();
   sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 7);
   const fourteenDaysAgo = new Date();
   fourteenDaysAgo.setDate(fourteenDaysAgo.getDate() - 14);
 
-  // Fetch all needed data in parallel
   const [
     { data: recentMeals },
     { data: bookmarks },
     { data: candidatePool },
-    { data: upcomingPlans },
+    { data: tomorrowPlans },
   ] = await Promise.all([
     supabase
       .from('meal_plans')
-      .select('recipe_id, plan_date')
+      .select('recipe_id, plan_date, recipes(name)')
       .eq('user_id', user.id)
       .gte('plan_date', fourteenDaysAgo.toISOString().split('T')[0])
       .order('plan_date', { ascending: false }),
@@ -91,113 +89,186 @@ export async function POST(request: NextRequest) {
       .select('recipe_id, recipes(cuisine)')
       .eq('user_id', user.id)
       .limit(30),
-    // Fetch candidate pool sorted by rating — no LLM needed
+    // Candidate pool: top 200 by rating, AI will pick from a focused subset
     supabase
       .from('recipes')
-      .select('id, cuisine, dish_type, avg_rating')
+      .select('id, name, cuisine, dish_type, avg_rating')
       .order('avg_rating', { ascending: false })
       .limit(200),
-    // Existing plans for tomorrow and day-after with dish_type info
+    // What is already planned for tomorrow?
     supabase
       .from('meal_plans')
-      .select('plan_date, meal_slot, recipes(dish_type)')
+      .select('meal_slot, recipes(dish_type)')
       .eq('user_id', user.id)
-      .in('plan_date', [tomorrowStr, dayAfterStr]),
+      .eq('plan_date', tomorrowStr),
   ]);
 
-  // Determine free slots and already-covered dish types for a given day
-  function getDayInfo(dateStr: string) {
-    const dayPlans = (upcomingPlans ?? []).filter((p) => p.plan_date === dateStr);
-    const plannedSlots = new Set(dayPlans.map((p) => p.meal_slot as MealSlot));
-    const plannedDishTypes = new Set(
-      dayPlans
-        .map((p) => {
-          const r = p.recipes;
-          return Array.isArray(r) ? r[0]?.dish_type : (r as { dish_type?: string } | null)?.dish_type;
-        })
-        .filter((t): t is string => !!t && t !== 'other')
-    );
-    const freeSlots = ALL_SLOTS.filter((s) => !plannedSlots.has(s));
-    const neededTypes = DISH_TYPES.filter((t) => !plannedDishTypes.has(t));
-    return { freeSlots, neededTypes, isComplete: freeSlots.length === 0 };
-  }
+  // Determine free slots and which dish types are still needed
+  const plannedSlots = new Set((tomorrowPlans ?? []).map((p) => p.meal_slot as MealSlot));
+  const plannedDishTypes = new Set(
+    (tomorrowPlans ?? [])
+      .map((p) => {
+        const r = p.recipes;
+        return Array.isArray(r) ? r[0]?.dish_type : (r as { dish_type?: string } | null)?.dish_type;
+      })
+      .filter((t): t is string => !!t && t !== 'other')
+  );
 
-  const day1Info = getDayInfo(tomorrowStr);
-  const day2Info = getDayInfo(dayAfterStr);
+  const freeSlots = ALL_SLOTS.filter((s) => !plannedSlots.has(s));
+  const neededTypes = DISH_TYPES.filter((t) => !plannedDishTypes.has(t));
 
-  if (day1Info.isComplete && day2Info.isComplete) {
+  if (freeSlots.length === 0) {
     return NextResponse.json({ recommendations: [] });
   }
 
-  // Build the exclude set (recipes eaten in the last 7 days)
+  // Assign a target dish type to each free slot
+  const slotsToFill: { slot: MealSlot; dishType: DishType | null }[] = freeSlots.map((slot, i) => ({
+    slot,
+    dishType: neededTypes[i] ?? null,
+  }));
+
+  // Build exclude set (last 7 days)
   const last7DayIds = new Set(
     (recentMeals ?? [])
       .filter((m) => m.plan_date >= sevenDaysAgo.toISOString().split('T')[0])
       .map((m) => m.recipe_id)
   );
 
-  // Derive preferred cuisines from bookmarks
+  // Preferred cuisines from bookmarks
   const cuisineCounts: Record<string, number> = {};
   (bookmarks ?? []).forEach((b) => {
     const r = b.recipes;
     const cuisine = Array.isArray(r) ? r[0]?.cuisine : (r as { cuisine?: string } | null)?.cuisine;
     if (cuisine) cuisineCounts[cuisine] = (cuisineCounts[cuisine] ?? 0) + 1;
   });
-  const preferredCuisines = new Set(
-    Object.entries(cuisineCounts)
-      .sort((a, b) => b[1] - a[1])
-      .slice(0, 3)
-      .map(([c]) => c)
-  );
+  const topCuisines = Object.entries(cuisineCounts)
+    .sort((a, b) => b[1] - a[1])
+    .slice(0, 3)
+    .map(([c]) => c);
 
-  // Filter out recently eaten recipes; pool is already sorted by avg_rating DESC
+  // Pool available to recommend (sorted by rating DESC, already excludes last 7 days)
   const available = (candidatePool ?? []).filter((r) => !last7DayIds.has(r.id));
 
-  // Track picked IDs within this request to avoid suggesting the same recipe twice
-  const pickedIds = new Set<string>();
-
-  function pickForSlot(dishType: DishType | null): string | null {
-    // Pass 1: preferred cuisine + correct dish type
+  // --- SERVER-SIDE FALLBACK ---
+  // Used when AI misses a slot or returns an invalid recipe ID
+  const serverPickedIds = new Set<string>();
+  function serverPickForSlot(dishType: DishType | null): string | null {
+    const preferred = new Set(topCuisines);
     let match = available.find(
       (r) =>
-        !pickedIds.has(r.id) &&
+        !serverPickedIds.has(r.id) &&
         (dishType === null || r.dish_type === dishType) &&
-        preferredCuisines.has(r.cuisine ?? '')
+        preferred.has(r.cuisine ?? '')
     );
-    // Pass 2: any cuisine + correct dish type
     if (!match) {
       match = available.find(
-        (r) => !pickedIds.has(r.id) && (dishType === null || r.dish_type === dishType)
+        (r) => !serverPickedIds.has(r.id) && (dishType === null || r.dish_type === dishType)
       );
     }
-    // Pass 3: ignore dish_type (fallback when dish_type column is not populated in DB)
     if (!match) {
-      match = available.find((r) => !pickedIds.has(r.id));
+      match = available.find((r) => !serverPickedIds.has(r.id));
     }
     if (!match) return null;
-    pickedIds.add(match.id);
+    serverPickedIds.add(match.id);
     return match.id;
   }
 
-  // Build the full list of slots that need filling, with their assigned dish types
-  const slotsToFill: { dayOffset: 1 | 2; slot: MealSlot; dishType: DishType | null }[] = [
-    ...day1Info.freeSlots.map((slot, i) => ({
-      dayOffset: 1 as const,
-      slot,
-      dishType: day1Info.neededTypes[i] ?? null,
-    })),
-    ...day2Info.freeSlots.map((slot, i) => ({
-      dayOffset: 2 as const,
-      slot,
-      dishType: day2Info.neededTypes[i] ?? null,
-    })),
-  ];
+  // --- GROQ AI SELECTION ---
+  // Build a focused prompt: one slot per entry with a small candidate list.
+  // The AI picks recipe IDs; a server-side fallback covers any missed slots.
 
+  // Recent recipe names (for "avoid repeating" hint)
+  const recentNames = (recentMeals ?? [])
+    .filter((m) => m.plan_date >= sevenDaysAgo.toISOString().split('T')[0])
+    .map((m) => {
+      const r = m.recipes;
+      return Array.isArray(r) ? r[0]?.name : (r as { name?: string } | null)?.name;
+    })
+    .filter(Boolean)
+    .slice(0, 5) as string[];
+
+  // Up to 12 candidates per slot, filtered by dish type
+  function slotCandidates(dishType: DishType | null) {
+    return available
+      .filter((r) => dishType === null || r.dish_type === dishType)
+      .slice(0, 12);
+  }
+
+  const slotBlocks = slotsToFill
+    .map(({ slot, dishType }) => {
+      const candidates = slotCandidates(dishType);
+      const rows = candidates
+        .map((r) => `  ${r.id} | ${r.name} | ${r.cuisine ?? 'N/A'}`)
+        .join('\n');
+      return `${slot} (dish type: ${dishType ?? 'any'})\n${rows || '  (no typed candidates — pick any from other slots)'}`;
+    })
+    .join('\n\n');
+
+  const expectedJson = JSON.stringify({
+    picks: slotsToFill.map(({ slot }) => ({ slot, recipe_id: '<uuid-from-candidates>' })),
+  });
+
+  const prompt = `You are a meal planner. Tomorrow's free meal slots need recipes.
+
+User preferences:
+- Favourite cuisines: ${topCuisines.join(', ') || 'no preference'}
+- Avoid recently eaten: ${recentNames.join(', ') || 'nothing to avoid'}
+
+For each slot below, pick exactly ONE recipe_id from the candidate list.
+
+${slotBlocks}
+
+Respond ONLY with valid JSON — no markdown, no explanation:
+${expectedJson}`;
+
+  let aiPicks: Record<string, string> = {};
+
+  if (process.env.GROQ_API_KEY) {
+    try {
+      const groq = new Groq({ apiKey: process.env.GROQ_API_KEY });
+      const completion = await groq.chat.completions.create({
+        model: 'llama-3.3-70b-versatile',
+        messages: [{ role: 'user', content: prompt }],
+        temperature: 0.4,
+        max_tokens: 300,
+        response_format: { type: 'json_object' },
+      });
+      const raw = completion.choices[0]?.message?.content ?? '{}';
+      const parsed = JSON.parse(raw);
+      if (Array.isArray(parsed.picks)) {
+        for (const pick of parsed.picks) {
+          if (typeof pick.slot === 'string' && typeof pick.recipe_id === 'string') {
+            aiPicks[pick.slot] = pick.recipe_id;
+          }
+        }
+      }
+    } catch {
+      // AI failed — server-side fallback will cover all slots below
+    }
+  }
+
+  // Validate AI picks: recipe_id must exist in the available pool
+  const validIds = new Set(available.map((r) => r.id));
+  const aiPickedIds = new Set<string>();
+  const validatedPicks: Record<string, string> = {};
+  for (const [slot, recipeId] of Object.entries(aiPicks)) {
+    if (
+      validIds.has(recipeId) &&
+      !aiPickedIds.has(recipeId) &&
+      recipeId !== '<uuid-from-candidates>'
+    ) {
+      validatedPicks[slot] = recipeId;
+      aiPickedIds.add(recipeId);
+      serverPickedIds.add(recipeId); // prevent fallback from picking the same
+    }
+  }
+
+  // Final recommendations: AI pick where valid, server-side fallback for any gap
   const recommendations = slotsToFill
-    .map(({ dayOffset, slot, dishType }) => {
-      const recipeId = pickForSlot(dishType);
+    .map(({ slot, dishType }) => {
+      const recipeId = validatedPicks[slot] ?? serverPickForSlot(dishType);
       if (!recipeId) return null;
-      return { recipe_id: recipeId, day_offset: dayOffset, meal_slot: slot };
+      return { recipe_id: recipeId, day_offset: 1, meal_slot: slot };
     })
     .filter((r): r is NonNullable<typeof r> => r !== null);
 
