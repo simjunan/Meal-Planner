@@ -154,7 +154,7 @@ export default function DashboardClient({ username, upcomingMeals, bookmarkedIds
             <span>✨</span> AI Suggestions
           </h2>
           <button
-            onClick={fetchRecommendations}
+            onClick={() => fetchRecommendations()}
             disabled={recLoading}
             className="text-sm text-brand-600 font-medium disabled:opacity-50 flex items-center gap-1"
           >
