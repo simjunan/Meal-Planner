@@ -9,9 +9,11 @@ interface SaveToPlanModalProps {
   onClose: () => void;
   onSave: (recipeId: string, date: string, slot: MealSlot) => Promise<void>;
   existingPlan?: { date: string; slot: MealSlot; recipeName: string } | null;
+  initialSlot?: MealSlot;
+  initialDate?: string;
 }
 
-export default function SaveToPlanModal({ recipe, onClose, onSave, existingPlan }: SaveToPlanModalProps) {
+export default function SaveToPlanModal({ recipe, onClose, onSave, existingPlan, initialSlot, initialDate }: SaveToPlanModalProps) {
   const [show, setShow] = useState(false);
   const [selectedDate, setSelectedDate] = useState('');
   const [selectedSlot, setSelectedSlot] = useState<MealSlot>('lunch');
@@ -20,14 +22,15 @@ export default function SaveToPlanModal({ recipe, onClose, onSave, existingPlan 
 
   useEffect(() => {
     if (recipe) {
-      const tomorrow = addDays(new Date(), 1);
-      setSelectedDate(formatDate(tomorrow));
+      const defaultDate = initialDate || formatDate(addDays(new Date(), 1));
+      setSelectedDate(defaultDate);
+      setSelectedSlot(initialSlot ?? 'lunch');
       requestAnimationFrame(() => setShow(true));
     } else {
       setShow(false);
       setConfirmReplace(null);
     }
-  }, [recipe]);
+  }, [recipe, initialSlot, initialDate]);
 
   if (!recipe) return null;
 
@@ -62,7 +65,7 @@ export default function SaveToPlanModal({ recipe, onClose, onSave, existingPlan 
 
       <div
         className={`fixed z-50 bg-white rounded-t-3xl bottom-0 left-0 right-0
-          md:top-1/2 md:left-1/2 md:-translate-x-1/2 md:-translate-y-1/2 md:bottom-auto md:left-auto md:right-auto
+          md:bottom-auto md:right-auto md:top-1/2 md:left-1/2 md:-translate-x-1/2 md:-translate-y-1/2
           md:w-[400px] md:rounded-2xl transition-transform duration-300
           ${show ? 'translate-y-0' : 'translate-y-full md:translate-y-8'}`}
       >

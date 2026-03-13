@@ -33,14 +33,21 @@ export default function DashboardClient({ username, upcomingMeals, bookmarkedIds
   const [recError, setRecError] = useState<string | null>(null);
   const [selectedRecipe, setSelectedRecipe] = useState<Recipe | null>(null);
   const [savePlanRecipe, setSavePlanRecipe] = useState<Recipe | null>(null);
+  const [savePlanMeta, setSavePlanMeta] = useState<{ slot: MealSlot; date: string }>({ slot: 'lunch', date: '' });
   const [bookmarks, setBookmarks] = useState<Set<string>>(new Set(bookmarkedIds));
   const [dismissed, setDismissed] = useState<Set<string>>(new Set());
+  // Track meals added this session so slot filters update immediately
+  const [localAddedPlans, setLocalAddedPlans] = useState<Array<{ date: string; slot: MealSlot }>>([]);
 
-  const fetchRecommendations = useCallback(async () => {
+  const fetchRecommendations = useCallback(async (forceRefresh = false) => {
     setRecLoading(true);
     setRecError(null);
     try {
-      const res = await fetch('/api/recommendations', { method: 'POST' });
+      const res = await fetch('/api/recommendations', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ forceRefresh }),
+      });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error ?? 'Request failed');
 
@@ -99,6 +106,10 @@ export default function DashboardClient({ username, upcomingMeals, bookmarkedIds
       showToast('Failed to save. Please try again.', { type: 'error' });
     } else {
       showToast('Added to meal plan!', { type: 'success' });
+      // Track locally so slot filter updates immediately without page refresh
+      setLocalAddedPlans((prev) => [...prev, { date, slot }]);
+      // Force-refresh recommendations so AI re-suggests missing dish types
+      fetchRecommendations(true);
     }
   }
 
@@ -112,9 +123,15 @@ export default function DashboardClient({ username, upcomingMeals, bookmarkedIds
   const day1Recs = recommendations.filter((r) => r.day_offset === 1 && !dismissed.has(`${r.recipe_id}-${r.day_offset}-${r.meal_slot}`));
   const day2Recs = recommendations.filter((r) => r.day_offset === 2 && !dismissed.has(`${r.recipe_id}-${r.day_offset}-${r.meal_slot}`));
 
-  // Determine which slots are already planned per day
-  const tomorrowPlannedSlots = new Set(upcomingMeals.filter((m) => m.plan_date === tomorrow).map((m) => m.meal_slot));
-  const dayAfterPlannedSlots = new Set(upcomingMeals.filter((m) => m.plan_date === dayAfter).map((m) => m.meal_slot));
+  // Determine which slots are already planned per day (server data + locally added this session)
+  const tomorrowPlannedSlots = new Set<MealSlot>([
+    ...upcomingMeals.filter((m) => m.plan_date === tomorrow).map((m) => m.meal_slot),
+    ...localAddedPlans.filter((p) => p.date === tomorrow).map((p) => p.slot),
+  ]);
+  const dayAfterPlannedSlots = new Set<MealSlot>([
+    ...upcomingMeals.filter((m) => m.plan_date === dayAfter).map((m) => m.meal_slot),
+    ...localAddedPlans.filter((p) => p.date === dayAfter).map((p) => p.slot),
+  ]);
   const day1AllFilled = tomorrowPlannedSlots.size === 3;
   const day2AllFilled = dayAfterPlannedSlots.size === 3;
 
@@ -213,7 +230,10 @@ export default function DashboardClient({ username, upcomingMeals, bookmarkedIds
                               <p className="text-[10px] text-gray-400 mt-0.5">{formatCookTime(recipe.cook_time_mins)}</p>
                             )}
                             <button
-                              onClick={() => { setSavePlanRecipe(recipe); }}
+                              onClick={() => {
+                                setSavePlanRecipe(recipe);
+                                setSavePlanMeta({ slot, date: rec.day_offset === 1 ? tomorrow : dayAfter });
+                              }}
                               className="mt-2 w-full h-7 bg-brand-500 hover:bg-brand-600 text-white text-xs font-semibold rounded-lg transition"
                             >
                               Add to Plan
@@ -303,6 +323,8 @@ export default function DashboardClient({ username, upcomingMeals, bookmarkedIds
         recipe={savePlanRecipe}
         onClose={() => setSavePlanRecipe(null)}
         onSave={handleSaveToPlan}
+        initialSlot={savePlanMeta.slot}
+        initialDate={savePlanMeta.date}
       />
 
       <ToastContainer />

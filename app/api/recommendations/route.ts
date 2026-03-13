@@ -37,18 +37,26 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
   }
 
+  let forceRefresh = false;
+  try {
+    const body = await request.json();
+    forceRefresh = !!body.forceRefresh;
+  } catch { /* no body or invalid JSON */ }
+
   const today = new Date().toISOString().split('T')[0];
 
-  // Check cache first
-  const { data: cached } = await supabase
-    .from('ai_recommendation_cache')
-    .select('recommendations')
-    .eq('user_id', user.id)
-    .eq('cache_date', today)
-    .maybeSingle();
+  // Check cache first (skip if forceRefresh)
+  if (!forceRefresh) {
+    const { data: cached } = await supabase
+      .from('ai_recommendation_cache')
+      .select('recommendations')
+      .eq('user_id', user.id)
+      .eq('cache_date', today)
+      .maybeSingle();
 
-  if (cached) {
-    return NextResponse.json({ recommendations: cached.recommendations });
+    if (cached) {
+      return NextResponse.json({ recommendations: cached.recommendations });
+    }
   }
 
   // Compute target dates

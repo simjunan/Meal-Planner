@@ -12,7 +12,7 @@ export default async function DashboardPage() {
   // Fetch today's and tomorrow's meal plans
   const { data: upcomingMeals } = await supabase
     .from('meal_plans')
-    .select('*, recipes(*)')
+    .select('*, recipe:recipes(*)')
     .eq('user_id', user!.id)
     .gte('plan_date', formatDate(new Date()))
     .lte('plan_date', dayAfter)

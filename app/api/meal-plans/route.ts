@@ -34,7 +34,7 @@ export async function GET(request: NextRequest) {
 
   let query = supabase
     .from('meal_plans')
-    .select('*, recipes(*)')
+    .select('*, recipe:recipes(*)')
     .eq('user_id', user.id)
     .order('plan_date');
 
@@ -61,7 +61,7 @@ export async function POST(request: NextRequest) {
       { user_id: user.id, recipe_id, plan_date, meal_slot },
       { onConflict: 'user_id,plan_date,meal_slot' }
     )
-    .select('*, recipes(*)')
+    .select('*, recipe:recipes(*)')
     .single();
 
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
