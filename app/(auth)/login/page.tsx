@@ -22,33 +22,20 @@ function LoginForm() {
 
     const supabase = createClient();
 
-    // Supabase Auth uses email — look up email by username first
-    const { data: profile, error: profileError } = await supabase
-      .from('profiles')
-      .select('id')
-      .eq('username', username)
-      .single();
-
-    if (profileError || !profile) {
-      setError('Incorrect username or password.');
-      setLoading(false);
-      return;
-    }
-
-    // Get email from auth.users via RPC
-    const { data: emailData, error: emailError } = await supabase.rpc(
-      'get_email_by_user_id',
-      { uid: profile.id }
+    // Single RPC call: maps username → email using SECURITY DEFINER (bypasses RLS)
+    const { data: email, error: rpcError } = await supabase.rpc(
+      'get_email_by_username',
+      { p_username: username }
     );
 
-    if (emailError || !emailData) {
+    if (rpcError || !email) {
       setError('Incorrect username or password.');
       setLoading(false);
       return;
     }
 
     const { error: signInError } = await supabase.auth.signInWithPassword({
-      email: emailData,
+      email,
       password,
     });
 
