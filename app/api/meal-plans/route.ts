@@ -55,6 +55,22 @@ export async function POST(request: NextRequest) {
 
   const { recipe_id, plan_date, meal_slot } = await request.json();
 
+  // Enforce maximum of 4 dishes per meal slot
+  const { count, error: countError } = await supabase
+    .from('meal_plans')
+    .select('id', { count: 'exact', head: true })
+    .eq('user_id', user.id)
+    .eq('plan_date', plan_date)
+    .eq('meal_slot', meal_slot);
+
+  if (countError) return NextResponse.json({ error: countError.message }, { status: 500 });
+  if ((count ?? 0) >= 4) {
+    return NextResponse.json(
+      { error: 'Maximum of 4 dishes per meal reached. Remove a dish to add a new one.' },
+      { status: 422 }
+    );
+  }
+
   const { data, error } = await supabase
     .from('meal_plans')
     .insert({ user_id: user.id, recipe_id, plan_date, meal_slot })

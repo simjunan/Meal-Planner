@@ -129,6 +129,15 @@ export default function DashboardClient({ username, upcomingMeals, bookmarkedIds
   ]);
   const day1AllFilled = tomorrowPlannedSlots.size === 3;
 
+  // Used to hide the entire AI section (including header) when nothing to show
+  const hasSuggestionContent =
+    recLoading ||
+    recError !== null ||
+    (!day1AllFilled &&
+      SLOT_ORDER.filter((s) => !tomorrowPlannedSlots.has(s)).some(
+        (s) => !!day1Recs.find((r) => r.meal_slot === s)?.recipe
+      ));
+
   function formatDisplayDate(dateStr: string) {
     return new Date(dateStr + 'T00:00:00').toLocaleDateString('en-US', { weekday: 'long', month: 'short', day: 'numeric' });
   }
@@ -141,8 +150,8 @@ export default function DashboardClient({ username, upcomingMeals, bookmarkedIds
         <p className="text-sm text-gray-500 mt-0.5">Here&apos;s what&apos;s on the menu.</p>
       </div>
 
-      {/* AI Recommendations */}
-      <section>
+      {/* AI Recommendations — hidden entirely when nothing to show */}
+      {hasSuggestionContent && <section>
         <div className="flex items-center justify-between mb-3">
           <h2 className="font-bold text-gray-900 text-lg flex items-center gap-1.5">
             <span>✨</span> AI Suggestions
@@ -251,7 +260,7 @@ export default function DashboardClient({ username, upcomingMeals, bookmarkedIds
             </div>
           );
         })()}
-      </section>
+      </section>}
 
       {/* Upcoming meals */}
       <section>
@@ -271,7 +280,11 @@ export default function DashboardClient({ username, upcomingMeals, bookmarkedIds
         ) : (
           <div className="space-y-2">
             {upcomingMeals.map((meal) => (
-              <div key={meal.id} className="bg-white rounded-2xl p-3 flex items-center gap-3 shadow-sm">
+              <div
+                key={meal.id}
+                onClick={() => meal.recipe && setSelectedRecipe(meal.recipe)}
+                className="bg-white rounded-2xl p-3 flex items-center gap-3 shadow-sm cursor-pointer hover:shadow-md active:bg-gray-50 transition"
+              >
                 <div className="relative w-12 h-12 rounded-xl overflow-hidden bg-gray-100 shrink-0">
                   {meal.recipe?.thumbnail_url ? (
                     <Image src={meal.recipe.thumbnail_url} alt={meal.recipe.name} fill className="object-cover" sizes="48px" />
@@ -286,6 +299,9 @@ export default function DashboardClient({ username, upcomingMeals, bookmarkedIds
                   </p>
                   <p className="text-sm font-semibold text-gray-900 truncate">{meal.recipe?.name}</p>
                 </div>
+                <svg className="w-4 h-4 text-gray-300 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
+                </svg>
               </div>
             ))}
           </div>

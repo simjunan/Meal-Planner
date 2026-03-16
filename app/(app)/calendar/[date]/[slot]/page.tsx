@@ -8,6 +8,7 @@ import { MEAL_SLOT_LABELS, formatCookTime } from '@/lib/utils';
 import { ToastContainer, showToast } from '@/components/ui/Toast';
 
 const VALID_SLOTS: MealSlot[] = ['breakfast', 'lunch', 'dinner'];
+const MAX_DISHES = 4;
 
 interface Props {
   params: { date: string; slot: string };
@@ -59,6 +60,10 @@ export default function MealSlotPage({ params }: Props) {
 
   async function handleAdd(recipe: Recipe) {
     if (!mealSlot) return;
+    if (plans.length >= MAX_DISHES) {
+      showToast(`Maximum of ${MAX_DISHES} dishes per meal reached.`, { type: 'error' });
+      return;
+    }
     setAddingId(recipe.id);
     const res = await fetch('/api/meal-plans', {
       method: 'POST',
@@ -67,7 +72,8 @@ export default function MealSlotPage({ params }: Props) {
     });
     setAddingId(null);
     if (!res.ok) {
-      showToast('Failed to add dish', { type: 'error' });
+      const errData = await res.json().catch(() => ({}));
+      showToast(errData.error ?? 'Failed to add dish', { type: 'error' });
     } else {
       showToast('Dish added!', { type: 'success' });
       setSearch('');
@@ -145,14 +151,27 @@ export default function MealSlotPage({ params }: Props) {
         </div>
         <button
           onClick={() => setShowSearch((v) => !v)}
-          className="h-9 px-4 bg-brand-500 text-white text-sm font-semibold rounded-xl hover:bg-brand-600 transition shrink-0"
+          disabled={plans.length >= MAX_DISHES}
+          className="h-9 px-4 bg-brand-500 text-white text-sm font-semibold rounded-xl hover:bg-brand-600 transition shrink-0 disabled:opacity-40 disabled:cursor-not-allowed"
         >
           + Add dish
         </button>
       </div>
 
+      {/* Max dishes banner */}
+      {!loading && plans.length >= MAX_DISHES && (
+        <div className="mb-4 bg-amber-50 border border-amber-200 rounded-2xl px-4 py-3 flex items-center gap-2">
+          <svg className="w-4 h-4 text-amber-500 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z" />
+          </svg>
+          <p className="text-sm text-amber-700">
+            Maximum of {MAX_DISHES} dishes per meal reached. Remove a dish to add a new one.
+          </p>
+        </div>
+      )}
+
       {/* Inline recipe search panel */}
-      {showSearch && (
+      {showSearch && plans.length < MAX_DISHES && (
         <div className="mb-4 bg-white rounded-2xl border border-gray-200 overflow-hidden shadow-sm">
           <div className="p-3 border-b border-gray-100">
             <input
