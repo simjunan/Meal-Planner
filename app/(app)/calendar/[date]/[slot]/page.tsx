@@ -8,7 +8,7 @@ import { MEAL_SLOT_LABELS, formatCookTime } from '@/lib/utils';
 import { ToastContainer, showToast } from '@/components/ui/Toast';
 
 const VALID_SLOTS: MealSlot[] = ['breakfast', 'lunch', 'dinner'];
-const MAX_DISHES = 4;
+const MAX_DISHES = 5;
 
 interface Props {
   params: { date: string; slot: string };

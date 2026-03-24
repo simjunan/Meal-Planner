@@ -64,9 +64,9 @@ export async function POST(request: NextRequest) {
     .eq('meal_slot', meal_slot);
 
   if (countError) return NextResponse.json({ error: countError.message }, { status: 500 });
-  if ((count ?? 0) >= 4) {
+  if ((count ?? 0) >= 5) {
     return NextResponse.json(
-      { error: 'Maximum of 4 dishes per meal reached. Remove a dish to add a new one.' },
+      { error: 'Maximum of 5 dishes per meal reached. Remove a dish to add a new one.' },
       { status: 422 }
     );
   }
